@@ -1,0 +1,7 @@
+#!/bin/bash
+MODEL="qwen2.5-coder:1.5b"
+
+PROMPT="Linux Ubuntu on Raspberry Pi 5. Provide only relevant commands,
+no explanations or comments. List all commands on separate lines. Question: $*"
+
+ollama run "$MODEL" "$PROMPT"

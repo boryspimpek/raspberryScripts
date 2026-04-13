@@ -1,0 +1,70 @@
+201~200~<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+    <title>Mój Chatbot GPT</title>
+      <style>
+          body { font-family: sans-serif; margin: 20px; background: #f8f8f8; }
+              #chatbox {
+              	      width: 100%;
+              	            height: 400px;
+              	                  overflow-y: auto;
+              	                        border: 1px solid #ccc;
+              	                              padding: 10px;
+              	                                    background: #fff;
+              	                                          margin-bottom: 10px;
+              	                                                white-space: pre-wrap;
+              	                                                    }
+              	                                                        .user { color: blue; font-weight: bold; }
+              	                                                            .bot { color: green; font-weight: bold; }
+              	                                                                textarea {
+              	                                                                	      width: 80%;
+              	                                                                	            height: 60px;
+              	                                                                	                  padding: 10px;
+              	                                                                	                        resize: none;
+              	                                                                	                              font-family: monospace;
+              	                                                                	                                  }
+              	                                                                	                                      button {
+              	                                                                	                                      	      padding: 10px 20px;
+              	                                                                	                                      	            font-size: 16px;
+              	                                                                	                                      	                }
+              	                                                                	                                      	                  </style>
+              	                                                                	                                      	                  </head>
+              	                                                                	                                      	                  <body>
+              	                                                                	                                      	                    <h2>Mój Chatbot GPT-4o</h2>
+
+              	                                                                	                                      	                      <div id="chatbox"></div>
+
+              	                                                                	                                      	                        <textarea id="userInput" placeholder="Napisz wiadomość..."></textarea>
+              	                                                                	                                      	                          <button onclick="sendMessage()">Wyślij</button>
+
+              	                                                                	                                      	                            <script>
+              	                                                                	                                      	                                async function sendMessage() {
+              	                                                                	                                      	                                	      const input = document.getElementById("userInput");
+              	                                                                	                                      	                                	            const chatbox = document.getElementById("chatbox");
+
+              	                                                                	                                      	                                	                  const message = input.value.trim();
+              	                                                                	                                      	                                	                        if (!message) return;
+
+              	                                                                	                                      	                                	                              chatbox.innerHTML += `🧑 Ty: ${message}\n`;
+              	                                                                	                                      	                                	                                    input.value = "";
+
+              	                                                                	                                      	                                	                                          const response = await fetch("/ask", {
+              	                                                                	                                      	                                	                                          	        method: "POST",
+              	                                                                	                                      	                                	                                          	                headers: { "Content-Type": "application/json" },
+              	                                                                	                                      	                                	                                          	                        body: JSON.stringify({ message })
+              	                                                                	                                      	                                	                                          	                              });
+
+              	                                                                	                                      	                                	                                          	                                    const data = await response.json();
+              	                                                                	                                      	                                	                                          	                                          chatbox.innerHTML += `🤖 GPT: ${data.reply}\n\n`;
+              	                                                                	                                      	                                	                                          	                                                chatbox.scrollTop = chatbox.scrollHeight;
+              	                                                                	                                      	                                	                                          	                                                    }
+              	                                                                	                                      	                                	                                          	                                                      </script>
+              	                                                                	                                      	                                	                                          	                                                      </body>
+              	                                                                	                                      	                                	                                          	                                                      </html>
+              	                                                                	                                      	                                	                                          	                                                      
+              	                                                                	                                      	                                	                                          })
+              	                                                                	                                      	                                }
+              	                                                                	                                      }
+              	                                                                }
+              }

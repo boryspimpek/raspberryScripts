@@ -1,0 +1,112 @@
+from luma.core.interface.serial import i2c
+from luma.oled.device import sh1106
+from PIL import Image, ImageDraw, ImageFont
+import time
+import subprocess
+import psutil
+
+# Inicjalizacja wyświetlacza
+serial = i2c(port=1, address=0x3c)
+device = sh1106(serial, width=128, height=64)
+
+# Domyślna czcionka
+font = ImageFont.load_default()
+
+# Funkcje systemowe
+def getCPUtemperature():
+    cmd = 'cat /sys/class/thermal/thermal_zone0/temp'
+    try:
+        temp = int(subprocess.check_output(cmd, shell=True).decode())
+        return round(temp / 1000, 2)
+    except Exception as e:
+        print('getCPUtemperature: %s' % e)
+        return 0.0
+
+def getCPUuse():
+    try:
+        return psutil.cpu_percent(interval=1)
+    except Exception as e:
+        print('getCPUuse: %s' % e)
+        return 0.0
+
+def getRAMinfo():
+    cmd = "free | awk 'NR==2 {print $2, $3}'"
+    try:
+        ram = subprocess.check_output(cmd, shell=True).decode().split()
+        # Konwersja z kB do GB z dwoma miejscami po przecinku
+        ram_GB = [round(int(val) / 1024 / 1024, 2) for val in ram]
+        return ram_GB  # [Total_GB, Used_GB]
+    except Exception as e:
+        print('getRAMinfo: %s' % e)
+        return [0.0, 0.0]
+
+def getIPaddressWlan0():
+    cmd = "ip a show wlan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
+    try:
+        ip_address = subprocess.check_output(cmd, shell=True).decode().strip()
+        return ip_address if ip_address else "No IP"
+    except Exception as e:
+        print('getIPaddress: %s' % e)
+        return "No IP"
+
+def getIPadressEth0():
+    cmd = "ip a show eth0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
+    try:
+        ip_address = subprocess.check_output(cmd, shell=True).decode().strip()
+        return ip_address if ip_address else "No IP"
+    except Exception as e:
+        print('getIPadressEth0: %s' % e)
+        return "No IP"
+
+def getSSID():
+    cmd = "iw wlan0 link"
+    try:
+        output = subprocess.check_output(cmd, shell=True).decode()
+        for line in output.split('\n'):
+            if "SSID:" in line:
+                return line.split("SSID:")[1].strip()
+        return "No SSID"
+    except Exception as e:
+        print('getSSID: %s' % e)
+        return "No SSID"
+
+while True:
+    
+    image = Image.new('1', (device.width, device.height))
+    draw = ImageDraw.Draw(image)
+
+    
+    cpu_temp = getCPUtemperature()
+    cpu_usage = getCPUuse()
+    ram = getRAMinfo()
+    ip = getIPaddressWlan0()
+    ip_eth0 = getIPadressEth0()
+    ssid = getSSID()
+
+    label_x = 0
+    value_x = 40 
+    line_height = 10  
+
+    
+    draw.text((label_x, 0 * line_height),  'Temp:', font=font, fill=255)
+    draw.text((value_x, 0 * line_height), f'{cpu_temp} C', font=font, fill=255)
+
+    draw.text((label_x, 1 * line_height), 'CPU:', font=font, fill=255)
+    draw.text((value_x, 1 * line_height), f'{cpu_usage} %', font=font, fill=255)
+
+    draw.text((label_x, 2 * line_height), 'RAM:', font=font, fill=255)
+    draw.text((value_x, 2 * line_height), f'{ram[1]} / {ram[0]} GB', font=font, fill=255)
+
+    draw.text((label_x, 3 * line_height), 'SSID:', font=font, fill=255)
+    draw.text((value_x, 3 * line_height), f'{ssid}', font=font, fill=255)
+
+    draw.text((label_x, 4 * line_height), 'IP:', font=font, fill=255)
+    draw.text((value_x, 4 * line_height), f'{ip}', font=font, fill=255)
+
+    draw.text((label_x, 5 * line_height), 'Eth IP:', font=font, fill=255)
+    draw.text((value_x, 5 * line_height), f'{ip_eth0}', font=font, fill=255)
+
+    
+    device.display(image)
+   
+    time.sleep(5)
