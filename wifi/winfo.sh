@@ -1,0 +1,203 @@
+#!/bin/bash
+
+# Kolory
+GREEN="\e[32m"
+RED="\e[31m"
+CYAN="\e[36m"
+YELLOW="\e[33m"
+BLUE="\e[34m"
+RESET="\e[0m"
+
+get_wifi_interfaces() {
+    # Znajdź wszystkie interfejsy Wi-Fi używając różnych metod
+    local interfaces=()
+    
+    # Metoda 1: iw dev (najlepsze dla Wi-Fi)
+    if command -v iw >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            if [[ $line =~ Interface[[:space:]]+([^[:space:]]+) ]]; then
+                interfaces+=("${BASH_REMATCH[1]}")
+            fi
+        done < <(iw dev 2>/dev/null)
+    fi
+    
+    # Metoda 2: Sprawdź /sys/class/net dla interfejsów wireless (backup)
+    if [ ${#interfaces[@]} -eq 0 ]; then
+        for iface in /sys/class/net/*/wireless; do
+            if [ -d "$iface" ]; then
+                basename_iface=$(basename "$(dirname "$iface")")
+                interfaces+=("$basename_iface")
+            fi
+        done
+    fi
+    
+    # Metoda 3: Sprawdź /proc/net/wireless (fallback)
+    if [ ${#interfaces[@]} -eq 0 ] && [ -f /proc/net/wireless ]; then
+        while read -r line; do
+            if [[ $line =~ ^[[:space:]]*([^[:space:]]+): ]]; then
+                interface_name="${BASH_REMATCH[1]}"
+                # Usuń dwukropek na końcu jeśli istnieje
+                interface_name="${interface_name%:}"
+                interfaces+=("$interface_name")
+            fi
+        done < <(tail -n +3 /proc/net/wireless 2>/dev/null)
+    fi
+    
+    # Usuń duplikaty i zwróć posortowaną listę
+    printf '%s\n' "${interfaces[@]}" | sort -u
+}
+
+print_info() {
+    local IFACE="$1"
+
+    LINK_INFO=$(iw "$IFACE" link 2>/dev/null)
+    DEV_INFO=$(iw dev "$IFACE" info 2>/dev/null)
+    IP_INFO=$(ip a show "$IFACE" 2>/dev/null)
+
+    CONNECTED=$(echo "$LINK_INFO" | grep "Connected to" | awk '{print $3}')
+    SSID=$(echo "$LINK_INFO" | grep "SSID:" | awk '{print $2}')
+    FREQ=$(echo "$LINK_INFO" | grep "freq:" | awk '{print $2}')
+    SIGNAL=$(echo "$LINK_INFO" | grep "signal:" | awk '{print $2, $3}')
+    RX=$(echo "$LINK_INFO" | grep "RX:" | cut -d ':' -f2 | xargs)
+    TX=$(echo "$LINK_INFO" | grep "TX:" | cut -d ':' -f2 | xargs)
+
+    TYPE=$(echo "$DEV_INFO" | grep "type" | awk '{print $2}')
+    CHANNEL=$(echo "$DEV_INFO" | grep "channel" | awk '{print $2}')
+
+    STATE=$(echo "$IP_INFO" | awk '/state/ {for(i=1;i<=NF;i++) if ($i=="state") print $(i+1)}')
+    INET=$(echo "$IP_INFO" | grep "inet " | awk '{print $2}')
+    MAC=$(ip link show "$IFACE" 2>/dev/null | awk '/ether/ {print $2}')
+
+    GATEWAY=$(ip route | grep default | grep "$IFACE" | awk '{print $3}')
+
+    # Ustaw wartości domyślne
+    CONNECTED=${CONNECTED:-"nie podłączono"}
+    SSID=${SSID:-"-"}
+    FREQ=${FREQ:-"-"}
+    SIGNAL=${SIGNAL:-"-"}
+    RX=${RX:-"0"}
+    TX=${TX:-"0"}
+    TYPE=${TYPE:-"-"}    
+    CHANNEL=${CHANNEL:-"-"}
+    STATE=${STATE:-"nieznany"}
+    INET=${INET:-"-"}
+    MAC=${MAC:-"-"}
+    GATEWAY=${GATEWAY:-"-"}
+
+    echo -e "${CYAN}========== Informacje o połączeniu dla ${IFACE} ==========${RESET}"
+    echo -e "${YELLOW}SSID:            ${RESET}$SSID"
+    echo -e "${YELLOW}Connected to:    ${RESET}$CONNECTED" 
+    echo -e "${YELLOW}Frequency:       ${RESET}$FREQ MHz"
+    echo -e "${YELLOW}Channel:         ${RESET}$CHANNEL"
+    echo -e "${YELLOW}Signal strength: ${RESET}$SIGNAL"
+    echo ""
+
+    echo -e "${CYAN}========== Parametry sieciowe ==========${RESET}"
+    echo -e "${YELLOW}Stan interfejsu: ${RESET}$STATE"
+    echo -e "${YELLOW}Tryb pracy:      ${RESET}$TYPE"
+    echo -e "${YELLOW}Adres MAC:       ${RESET}$MAC"
+    echo -e "${YELLOW}Adres IPv4:      ${RESET}$INET"
+    echo -e "${YELLOW}Brama domyślna:  ${RESET}$GATEWAY"
+    echo ""
+
+    echo -e "${CYAN}========== Statystyki ruchu ==========${RESET}"
+    echo -e "${YELLOW}Odebrano (RX):   ${RESET}$RX"
+    echo -e "${YELLOW}Wysłano (TX):    ${RESET}$TX"
+    echo -e "${CYAN}=========================================${RESET}\n"
+}
+
+print_saved_connections() {
+    echo -e "${CYAN}========== Zapisane połączenia Wi-Fi ==========${RESET}"
+
+    # Sprawdź czy nmcli jest dostępne
+    if ! command -v nmcli >/dev/null 2>&1; then
+        echo -e "${RED}❌ NetworkManager (nmcli) nie jest dostępny.${RESET}"
+        return
+    fi
+
+    mapfile -t connections < <(nmcli -t -f NAME,TYPE connection show | grep ':802-11-wireless' | cut -d: -f1)
+
+    if [ ${#connections[@]} -eq 0 ]; then
+        echo -e "${RED}❌ Brak zapisanych połączeń Wi-Fi.${RESET}"
+        return
+    fi
+
+    mapfile -t active_connections < <(nmcli -t -f NAME,TYPE connection show --active | grep ":802-11-wireless" | cut -d: -f1)
+
+    # Grupuj połączenia według interfejsów
+    declare -A iface_connections
+    declare -a indexed_connections
+
+    for con in "${connections[@]}"; do
+        iface=$(nmcli -g connection.interface-name connection show "$con" 2>/dev/null)
+        if [[ -n "$iface" ]]; then
+            if [[ -z "${iface_connections[$iface]}" ]]; then
+                iface_connections[$iface]="$con"
+            else
+                iface_connections[$iface]="${iface_connections[$iface]}|$con"
+            fi
+        fi
+    done
+
+    # Wyświetl połączenia dla każdego interfejsu
+    for iface in $(printf '%s\n' "${!iface_connections[@]}" | sort); do
+        IFS='|' read -ra cons <<< "${iface_connections[$iface]}"
+        echo -e "\n${YELLOW}🔌 Połączenia dla $iface (${#cons[@]}):${RESET}"
+        echo "----------------------------------"
+        for con in "${cons[@]}"; do
+            indexed_connections+=("$con")
+            num=${#indexed_connections[@]}
+            autoconnect=$(nmcli -g connection.autoconnect connection show "$con" 2>/dev/null)
+            if printf '%s\n' "${active_connections[@]}" | grep -qx "$con"; then
+                echo -e "${GREEN}$num) $con ✅ AKTYWNE (autoconnect: $autoconnect)${RESET}"
+            else
+                echo "$num) $con (autoconnect: $autoconnect)"
+            fi
+        done
+    done
+
+    echo ""
+}
+
+print_interfaces_summary() {
+    local interfaces=("$@")
+    
+    echo -e "${BLUE}========== Podsumowanie interfejsów Wi-Fi ==========${RESET}"
+    if [ ${#interfaces[@]} -eq 0 ]; then
+        echo -e "${RED}❌ Nie znaleziono żadnych interfejsów Wi-Fi.${RESET}"
+        echo -e "${YELLOW}💡 Sprawdź czy:${RESET}"
+        echo "   - Sterowniki Wi-Fi są zainstalowane"
+        echo "   - Interfejs Wi-Fi nie jest zablokowany (rfkill)"
+        echo "   - System ma zainstalowane narzędzia iw lub wireless-tools"
+        echo ""
+        return 1
+    fi
+    
+    echo -e "${GREEN}✅ Znaleziono ${#interfaces[@]} interfejs(ów) Wi-Fi:${RESET}"
+    for iface in "${interfaces[@]}"; do
+        echo "   - $iface"
+    done
+    echo -e "${CYAN}================================================${RESET}\n"
+    return 0
+}
+
+# === WYKONANIE CAŁOŚCI ===
+clear
+
+#echo -e "${BLUE}🔍 Wyszukiwanie interfejsów Wi-Fi...${RESET}\n"
+
+# Znajdź wszystkie interfejsy Wi-Fi
+mapfile -t wifi_interfaces < <(get_wifi_interfaces)
+
+# Wyświetl podsumowanie interfejsów
+if ! print_interfaces_summary "${wifi_interfaces[@]}"; then
+    exit 1
+fi
+
+# Wyświetl szczegółowe informacje dla każdego interfejsu
+for iface in "${wifi_interfaces[@]}"; do
+    print_info "$iface"
+done
+
+# Wyświetl zapisane połączenia
+print_saved_connections

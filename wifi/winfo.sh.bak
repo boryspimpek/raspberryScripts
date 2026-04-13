@@ -1,0 +1,127 @@
+#!/bin/bash
+
+# Kolory
+GREEN="\e[32m"
+RED="\e[31m"
+CYAN="\e[36m"
+YELLOW="\e[33m"
+RESET="\e[0m"
+
+print_info() {
+    IFACE="$1"
+
+    LINK_INFO=$(iw "$IFACE" link 2>/dev/null)
+    DEV_INFO=$(iw dev "$IFACE" info 2>/dev/null)
+    IP_INFO=$(ip a show "$IFACE" 2>/dev/null)
+
+    CONNECTED=$(echo "$LINK_INFO" | grep "Connected to" | awk '{print $3}')
+    SSID=$(echo "$LINK_INFO" | grep "SSID:" | awk '{print $2}')
+    FREQ=$(echo "$LINK_INFO" | grep "freq:" | awk '{print $2}')
+    SIGNAL=$(echo "$LINK_INFO" | grep "signal:" | awk '{print $2, $3}')
+    RX=$(echo "$LINK_INFO" | grep "RX:" | cut -d ':' -f2 | xargs)
+    TX=$(echo "$LINK_INFO" | grep "TX:" | cut -d ':' -f2 | xargs)
+
+    TYPE=$(echo "$DEV_INFO" | grep "type" | awk '{print $2}')
+    CHANNEL=$(echo "$DEV_INFO" | grep "channel" | awk '{print $2}')
+
+    STATE=$(echo "$IP_INFO" | awk '/state/ {for(i=1;i<=NF;i++) if ($i=="state") print $(i+1)}')
+    INET=$(echo "$IP_INFO" | grep "inet " | awk '{print $2}')
+    MAC=$(ip link show "$IFACE" 2>/dev/null | awk '/ether/ {print $2}')
+
+    GATEWAY=$(ip route | grep default | grep "$IFACE" | awk '{print $3}')
+
+    # Ustaw wartości domyślne
+    CONNECTED=${CONNECTED:-disconnected}
+    SSID=${SSID:--}
+    FREQ=${FREQ:--}
+    SIGNAL=${SIGNAL:--}
+    RX=${RX:-0}
+    TX=${TX:-0}
+    TYPE=${TYPE:--}    
+    CHANNEL=${CHANNEL:--}
+    STATE=${STATE:-unknown}
+    INET=${INET:--}
+    MAC=${MAC:--}
+    GATEWAY=${GATEWAY:--}
+
+    echo -e "${CYAN}========== Informacje o połączeniu dla ${IFACE} ==========${RESET}"
+    echo -e "${YELLOW}SSID:            ${RESET}$SSID"
+    echo -e "${YELLOW}Adres MAC:       ${RESET}$CONNECTED" 
+    echo -e "${YELLOW}Frequency:       ${RESET}$FREQ MHz"
+    echo -e "${YELLOW}Channel:         ${RESET}$CHANNEL"
+    echo -e "${YELLOW}Signal strength: ${RESET}$SIGNAL"
+    echo ""
+
+    echo -e "${CYAN}========== Parametry sieciowe ==========${RESET}"
+    echo -e "${YELLOW}Stan interfejsu: ${RESET}$STATE"
+    echo -e "${YELLOW}Tryb pracy:      ${RESET}$TYPE"
+    echo -e "${YELLOW}Adres MAC:       ${RESET}$MAC"
+    echo -e "${YELLOW}Adres IPv4:      ${RESET}$INET"
+    echo -e "${YELLOW}Brama domyślna:  ${RESET}$GATEWAY"
+    echo ""
+
+    echo -e "${CYAN}========== Statystyki ruchu ==========${RESET}"
+    echo -e "${YELLOW}Odebrano (RX):   ${RESET}$RX"
+    echo -e "${YELLOW}Wysłano (TX):    ${RESET}$TX"
+    echo -e "${CYAN}=========================================${RESET}\n"
+}
+
+print_saved_connections() {
+    echo -e "${CYAN}========== Zapisane połączenia Wi-Fi ==========${RESET}"
+
+    mapfile -t connections < <(nmcli -t -f NAME,TYPE connection show | grep ':802-11-wireless' | cut -d: -f1)
+
+    if [ ${#connections[@]} -eq 0 ]; then
+        echo -e "${RED}❌ Brak zapisanych połączeń Wi-Fi.${RESET}"
+        return
+    fi
+
+    mapfile -t active_connections < <(nmcli -t -f NAME,TYPE connection show --active | grep ":802-11-wireless" | cut -d: -f1)
+
+    declare -a wlan0_list
+    declare -a wlan1_list
+    declare -a indexed_connections
+
+    for con in "${connections[@]}"; do
+        iface=$(nmcli -g connection.interface-name connection show "$con")
+        if [[ "$iface" == "wlan0" ]]; then
+            wlan0_list+=("$con")
+        elif [[ "$iface" == "wlan1" ]]; then
+            wlan1_list+=("$con")
+        fi
+    done
+
+    echo -e "\n${YELLOW}🔌 Połączenia dla wlan0 (${#wlan0_list[@]}):${RESET}"
+    echo "----------------------------------"
+    for con in "${wlan0_list[@]}"; do
+        indexed_connections+=("$con")
+        num=${#indexed_connections[@]}
+        autoconnect=$(nmcli -g connection.autoconnect connection show "$con")
+        if printf '%s\n' "${active_connections[@]}" | grep -qx "$con"; then
+            echo -e "${GREEN}$num) $con ✅ AKTYWNE (autoconnect: $autoconnect)${RESET}"
+        else
+            echo "$num) $con (autoconnect: $autoconnect)"
+        fi
+    done
+
+    echo -e "\n${YELLOW}🔌 Połączenia dla wlan1 (${#wlan1_list[@]}):${RESET}"
+    echo "----------------------------------"
+    for con in "${wlan1_list[@]}"; do
+        indexed_connections+=("$con")
+        num=${#indexed_connections[@]}
+        autoconnect=$(nmcli -g connection.autoconnect connection show "$con")
+        if printf '%s\n' "${active_connections[@]}" | grep -qx "$con"; then
+            echo -e "${GREEN}$num) $con ✅ AKTYWNE (autoconnect: $autoconnect)${RESET}"
+        else
+            echo "$num) $con (autoconnect: $autoconnect)"
+        fi
+    done
+
+    echo ""
+}
+
+# === WYKONANIE CAŁOŚCI ===
+clear
+print_info "wlan0"
+print_info "wlan1"
+print_saved_connections

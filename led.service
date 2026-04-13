@@ -1,0 +1,17 @@
+[Unit]
+Description=LED Rainbow Script Early Startup
+DefaultDependencies=no
+After=local-fs.target
+Before=network.target
+
+[Service]
+ExecStart=/home/borys/led/.venv/bin/python /home/borys/led/led.py
+WorkingDirectory=/home/borys/led
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=borys
+Group=borys
+
+[Install]
+WantedBy=sysinit.target
